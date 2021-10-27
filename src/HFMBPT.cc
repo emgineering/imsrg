@@ -800,9 +800,8 @@ void HFMBPT::PrintChannelOrderChanges(std::array<int,3> channel_id, arma::uvec o
     std::cout << std::fixed;
     for (auto val : channel_id) std::cout << std::setw(2) << val << " ";
     std::cout << "| ";
-    std::stringstream vec_str;
-    for (auto orb : sorted) vec_str << orb << " ";
-    std::cout << std::setw(25) << std::right << vec_str.str() << std::endl;
+    for (auto orb : sorted) std::cout << orb << " ";
+    std::cout << std::endl;
   }
 }
 
@@ -848,6 +847,60 @@ void HFMBPT::ReorderHFMBPTCoefficients()
     std::cout << "Ordering NAT orbits according to second order energy impact..." << std::endl;
     Operator H_temp = GetNormalOrderedHNAT(2); // particle rank 2 - we don't care about threebody here
 //    arma::vec impacts = H_temp.GetMP2_Impacts();
+    arma::vec impacts = GetMP2_Impacts(H_temp);
+    
+    auto all_holes = H_temp.modelspace->holes;
+    arma::uvec sorted_indices;
+
+    std::cout << std::fixed << std::setw(2) << "l" << " " << std::setw(2) << "j" << " " << std::setw(2) << "tz" << " |  orbits" << std::endl;
+    for (auto& it : Hbare.OneBodyChannels)
+    {
+      arma::uvec orbvec(std::vector<index_t>(it.second.begin(),it.second.end()));
+
+      // partition vector into particles/holes (there is probably a much better way to do this!)
+      arma::uvec particles(orbvec.size());
+      arma::uvec holes(orbvec.size());
+      int num_particles = 0;
+      int num_holes = 0;
+      for (auto orb : orbvec)
+      {
+        // search `all_holes` for orb; if found, put orb in holes, otherwise put in particles
+        // searching holes instead of particles because typically it should be shorter?
+        if (std::find(all_holes.begin(), all_holes.end(), orb) != all_holes.end())
+          holes(num_holes++) = orb;
+        else 
+          particles(num_particles++) = orb;
+      }
+      particles.resize(num_particles);
+      holes.resize(num_holes);
+
+      // sort holes
+      arma::vec hole_impacts = impacts(holes);
+      sorted_indices = arma::sort_index(hole_impacts, "descend");
+      arma::uvec holes_sorted = holes(sorted_indices);
+
+      // sort particles
+      arma::vec particle_impacts = impacts(particles);
+      sorted_indices = arma::sort_index(particle_impacts, "ascend");
+      arma::uvec particles_sorted = particles(sorted_indices);
+
+      // rejoin vector
+      arma::uvec orbs = arma::join_cols(holes, particles);
+      arma::uvec orbs_sorted = arma::join_cols(holes_sorted, particles_sorted);
+
+      C_HF2NAT.submat(orbs, orbs) = C_HF2NAT( orbs, orbs_sorted); // sort the column indices, <row|col> = <HF|NAT>
+      Occ(orbs) = Occ(orbs_sorted); 
+
+      PrintChannelOrderChanges(it.first, orbs, orbs_sorted);
+    }
+  }
+  
+  else if ( NAT_order == "dC_optimal") {
+    std::cout << "Ordering NAT orbits according to coulombic effects..." << std::endl;
+    Operator H_temp = GetNormalOrderedHNAT(2); // particle rank 2 - we don't care about threebody here
+    Operator VCoul = imsrg_util::VCoulomb_Op(*H_temp.modelspace);
+    VCoul = TransformHOToNATBasis( VCoul );
+    H_temp.TwoBody = VCoul.TwoBody;
     arma::vec impacts = GetMP2_Impacts(H_temp);
     
     auto all_holes = H_temp.modelspace->holes;
