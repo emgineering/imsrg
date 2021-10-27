@@ -843,28 +843,7 @@ void HFMBPT::ReorderHFMBPTCoefficients()
       PrintChannelOrderChanges(it.first, orbvec, orbvec_sorted);
     }
   }
-  // eventually, replacing mp2 with mp2v2
   else if (NAT_order == "mp2")
-  {
-    std::cout << "Ordering NAT orbits according to second order energy impact..." << std::endl;
-    Operator H_temp = GetNormalOrderedHNAT(2); // particle rank 2 - we don't care about threebody here
-//    arma::vec impacts = H_temp.GetMP2_Impacts();
-    arma::vec impacts = GetMP2_Impacts(H_temp);
-
-    std::cout << std::fixed << std::setw(2) << "l" << " " << std::setw(2) << "j" << " " << std::setw(2) << "tz" << " |  orbits" << std::endl;
-    for (auto& it : Hbare.OneBodyChannels)
-    {
-      arma::uvec orbvec(std::vector<index_t>(it.second.begin(),it.second.end()));
-      arma::vec impacts_chan = impacts(orbvec);
-      arma::uvec sorted_indices = arma::sort_index( impacts_chan, "ascend");
-      arma::uvec orbvec_sorted = orbvec(sorted_indices);
-      C_HF2NAT.submat(orbvec, orbvec) = C_HF2NAT( orbvec, orbvec_sorted); // sort the column indices, <row|col> = <HF|NAT>
-      Occ(orbvec) = Occ(orbvec_sorted); 
-
-      PrintChannelOrderChanges(it.first, orbvec, orbvec_sorted);
-    }
-  }
-  else if (NAT_order == "mp2v2")
   {
     std::cout << "Ordering NAT orbits according to second order energy impact..." << std::endl;
     Operator H_temp = GetNormalOrderedHNAT(2); // particle rank 2 - we don't care about threebody here
