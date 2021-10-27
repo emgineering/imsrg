@@ -792,7 +792,19 @@ void HFMBPT::PrintSPEandWF()
 }
 
 
-
+// helper method for visualizing effects of ReorderHFMBPTCoefficients()
+void HFMBPT::PrintChannelOrderChanges(std::array<int,3> channel_id, arma::uvec original, arma::uvec sorted)
+{
+  if (!arma::approx_equal(original, sorted, "absdiff", 0.5))
+  {
+    std::cout << std::fixed;
+    for (auto val : channel_id) std::cout << std::setw(2) << val << " ";
+    std::cout << "| ";
+    std::stringstream vec_str;
+    for (auto orb : sorted) vec_str << orb << " ";
+    std::cout << std::setw(25) << std::right << vec_str.str() << std::endl;
+  }
+}
 
 //*********************************************************************
 // The reordering business probably isn't necessary because it should
@@ -814,6 +826,7 @@ void HFMBPT::ReorderHFMBPTCoefficients()
     // gets swapped with an unoccupied orbit, we would in principle need to recompute the energies and orderings
     // but let's just hope that this doesn't happen.
     std::cout << "Ordering NAT orbits according to increasing energy..." << std::endl;
+    std::cout << std::fixed << std::setw(2) << "l" << " " << std::setw(2) << "j" << " " << std::setw(2) << "tz" << " |  orbits" << std::endl;
     for (auto& it : Hbare.OneBodyChannels)
     {
       arma::uvec orbvec(std::vector<index_t>(it.second.begin(),it.second.end()));
@@ -826,13 +839,11 @@ void HFMBPT::ReorderHFMBPTCoefficients()
       arma::uvec orbvec_sorted = orbvec(sorted_indices);
       C_HF2NAT.submat(orbvec, orbvec) = C_HF2NAT( orbvec, orbvec_sorted); // sort the column indices, <row|col> = <HF|NAT>
       Occ(orbvec) = Occ(orbvec_sorted); 
-    }
-    for ( auto i : HartreeFock::modelspace->all_orbits )
-    {
-      auto& oi = HartreeFock::modelspace->GetOrbit(i);
-      oi.occ_nat = std::abs(Occ(i));  // it's possible that Occ(i) is negative, and for occ_nat, we don't want that.
+
+      PrintChannelOrderChanges(it.first, orbvec, orbvec_sorted);
     }
   }
+  // eventually, replacing mp2 with mp2v2
   else if (NAT_order == "mp2")
   {
     std::cout << "Ordering NAT orbits according to second order energy impact..." << std::endl;
@@ -840,6 +851,7 @@ void HFMBPT::ReorderHFMBPTCoefficients()
 //    arma::vec impacts = H_temp.GetMP2_Impacts();
     arma::vec impacts = GetMP2_Impacts(H_temp);
 
+    std::cout << std::fixed << std::setw(2) << "l" << " " << std::setw(2) << "j" << " " << std::setw(2) << "tz" << " |  orbits" << std::endl;
     for (auto& it : Hbare.OneBodyChannels)
     {
       arma::uvec orbvec(std::vector<index_t>(it.second.begin(),it.second.end()));
@@ -848,8 +860,66 @@ void HFMBPT::ReorderHFMBPTCoefficients()
       arma::uvec orbvec_sorted = orbvec(sorted_indices);
       C_HF2NAT.submat(orbvec, orbvec) = C_HF2NAT( orbvec, orbvec_sorted); // sort the column indices, <row|col> = <HF|NAT>
       Occ(orbvec) = Occ(orbvec_sorted); 
+
+      PrintChannelOrderChanges(it.first, orbvec, orbvec_sorted);
     }
-    for ( auto i : HartreeFock::modelspace->all_orbits )
+  }
+  else if (NAT_order == "mp2v2")
+  {
+    std::cout << "Ordering NAT orbits according to second order energy impact..." << std::endl;
+    Operator H_temp = GetNormalOrderedHNAT(2); // particle rank 2 - we don't care about threebody here
+//    arma::vec impacts = H_temp.GetMP2_Impacts();
+    arma::vec impacts = GetMP2_Impacts(H_temp);
+    
+    auto all_holes = H_temp.modelspace->holes;
+    arma::uvec sorted_indices;
+
+    std::cout << std::fixed << std::setw(2) << "l" << " " << std::setw(2) << "j" << " " << std::setw(2) << "tz" << " |  orbits" << std::endl;
+    for (auto& it : Hbare.OneBodyChannels)
+    {
+      arma::uvec orbvec(std::vector<index_t>(it.second.begin(),it.second.end()));
+
+      // partition vector into particles/holes (there is probably a much better way to do this!)
+      arma::uvec particles(orbvec.size());
+      arma::uvec holes(orbvec.size());
+      int num_particles = 0;
+      int num_holes = 0;
+      for (auto orb : orbvec)
+      {
+        // search `all_holes` for orb; if found, put orb in holes, otherwise put in particles
+        // searching holes instead of particles because typically it should be shorter?
+        if (std::find(all_holes.begin(), all_holes.end(), orb) != all_holes.end())
+          holes(num_holes++) = orb;
+        else 
+          particles(num_particles++) = orb;
+      }
+      particles.resize(num_particles);
+      holes.resize(num_holes);
+
+      // sort holes
+      arma::vec hole_impacts = impacts(holes);
+      sorted_indices = arma::sort_index(hole_impacts, "descend");
+      arma::uvec holes_sorted = holes(sorted_indices);
+
+      // sort particles
+      arma::vec particle_impacts = impacts(particles);
+      sorted_indices = arma::sort_index(particle_impacts, "ascend");
+      arma::uvec particles_sorted = particles(sorted_indices);
+
+      // rejoin vector
+      arma::uvec orbs = arma::join_cols(holes, particles);
+      arma::uvec orbs_sorted = arma::join_cols(holes_sorted, particles_sorted);
+
+      C_HF2NAT.submat(orbs, orbs) = C_HF2NAT( orbs, orbs_sorted); // sort the column indices, <row|col> = <HF|NAT>
+      Occ(orbs) = Occ(orbs_sorted); 
+
+      PrintChannelOrderChanges(it.first, orbs, orbs_sorted);
+    }
+  }
+
+  if (NAT_order != "occupation")
+  {
+     for ( auto i : HartreeFock::modelspace->all_orbits )
     {
       auto& oi = HartreeFock::modelspace->GetOrbit(i);
       oi.occ_nat = std::abs(Occ(i));  // it's possible that Occ(i) is negative, and for occ_nat, we don't want that.
