@@ -949,6 +949,117 @@ void HFMBPT::ReorderHFMBPTCoefficients()
     }
   }
 
+  // These implement the "spin-pair locked" orderings: these orders favor states with high 2nd-order MBPT
+  // impacts, but also ensures states with opposite spin (but identical quantum numbers otherwise) according 
+  // to occupation order are sorted together (mapped to the same final n).
+  // These have not been heavily tested, so use at own risk, but they show some promise in calculations
+  // involving isospin.
+  else if (NAT_order.rfind("spl") == 0)
+  {
+    std::cout << "Ordering NAT orbits according to second order energy impact..." << std::endl;
+    Operator H_temp = GetNormalOrderedHNAT(2); // particle rank 2 - we don't care about threebody here
+//    arma::vec impacts = H_temp.GetMP2_Impacts();
+    arma::vec impacts = GetMP2_Impacts(H_temp);
+    
+    auto all_holes = H_temp.modelspace->holes;
+    arma::uvec sorted_indices;
+
+    int pair_spin;
+    if (NAT_order.find("_p") != std::string::npos)
+      pair_spin = -1;
+    else if (NAT_order.find("_n") != std::string::npos)
+      pair_spin = 1;
+    else 
+    {
+      std::cout << "(unrecognized tag on NAT_order; should be spl_n or spl_p. Defaulting to p" << std::endl;
+      pair_spin = -1;
+    }
+
+    std::cout << std::fixed << std::setw(2) << "l" << " " << std::setw(2) << "j" << " " << std::setw(2) << "tz" << " |  orbits" << std::endl;
+    for (auto& it : Hbare.OneBodyChannels)
+    {
+
+      // only operate on spin-down channels
+      if ( it.first[2] == pair_spin)
+      {
+        continue;
+      }
+
+      std::array<int, 3> pair_channel = {it.first[0], it.first[1], pair_spin};
+
+      // get the positive-spin counterpart of this channel
+      auto& orb_set_p = Hbare.OneBodyChannels[pair_channel];
+      arma::uvec orbvec_p(std::vector<index_t>(orb_set_p.begin(), orb_set_p.end()));
+      
+      arma::uvec orbvec(std::vector<index_t>(it.second.begin(),it.second.end()));
+
+      // partition vector into particles/holes (there is probably a much better way to do this!)
+      arma::uvec particle_indices(orbvec.size());
+      arma::uvec hole_indices(orbvec.size());
+      int num_particles = 0;
+      int num_holes = 0;
+      int index = 0;
+      for (auto orb : orbvec)
+      {
+        // search `all_holes` for orb; if found, put orb in holes, otherwise put in particles
+        // searching holes instead of particles because typically it should be shorter?
+        if (std::find(all_holes.begin(), all_holes.end(), orb) != all_holes.end())
+        {
+          hole_indices(num_holes++) = index++; // orb;
+        }
+        else {
+          particle_indices(num_particles++) = index++; // orb;
+        }
+      }
+      particle_indices.resize(num_particles);
+      hole_indices.resize(num_holes);
+
+      // sort holes
+      arma::vec hole_impacts = impacts(orbvec(hole_indices));
+      arma::uvec holes_sorted = arma::sort_index(hole_impacts, "descend");
+
+      // sort particles
+      arma::vec particle_impacts = impacts(orbvec(particle_indices));
+      arma::uvec particles_sorted = arma::sort_index(particle_impacts, "ascend");
+
+      // rejoin vector
+      arma::uvec indices = arma::join_cols(hole_indices, particle_indices);
+      arma::uvec sorted_indices = arma::join_cols(hole_indices(holes_sorted), particle_indices(particles_sorted));
+      
+      arma::uvec orbs = orbvec(indices);
+      arma::uvec orbs_p = orbvec_p(indices);
+
+      arma::uvec orbs_sorted = orbvec(sorted_indices);
+      arma::uvec orbs_sorted_p = orbvec_p(sorted_indices);
+
+      C_HF2NAT.submat(orbs, orbs) = C_HF2NAT( orbs, orbs_sorted); // sort the column indices, <row|col> = <HF|NAT>
+      Occ(orbs) = Occ(orbs_sorted); 
+
+      C_HF2NAT.submat(orbs_p, orbs_p) = C_HF2NAT( orbs_p, orbs_sorted_p); // sort the column indices, <row|col> = <HF|NAT>
+      Occ(orbs_p) = Occ(orbs_sorted_p); 
+
+
+
+      if (!arma::approx_equal(orbs, orbs_sorted, "absdiff", 0.5))
+      {
+
+        PrintChannelOrderChanges(it.first, orbs, orbs_sorted);
+
+        arma::vec temp = impacts(orbs_sorted);
+        for (auto impact : temp) std::cout << impact << "  ";
+        std::cout << std::endl;
+
+        PrintChannelOrderChanges(pair_channel, orbs_p, orbs_sorted_p);
+
+        temp = impacts(orbs_sorted_p);
+        for (auto impact : temp) std::cout << impact << "  ";
+        std::cout << std::endl;
+
+      }
+      
+    }
+  }
+
   if (NAT_order != "occupation")
   {
      for ( auto i : HartreeFock::modelspace->all_orbits )

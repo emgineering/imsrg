@@ -59,7 +59,9 @@ class HFMBPT : public HartreeFock
     void OrderNATBy( std::string order ){ NAT_order = order;}; // Choose how to label orbits ("occupation", "energy", "mp2")
 
     arma::vec GetMP2_Impacts(Operator& OpIn) const;
-    void PrintChannelOrderChanges(std::array<int,3> channel_id, arma::uvec original, arma::uvec sorted);
+    
+    private: 
+      void PrintChannelOrderChanges(std::array<int,3> channel_id, arma::uvec original, arma::uvec sorted);
 
 };
 #endif
