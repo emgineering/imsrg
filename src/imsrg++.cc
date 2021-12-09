@@ -148,6 +148,7 @@ int main(int argc, char** argv)
   double denominator_delta = parameters.d("denominator_delta");
   double BetaCM = parameters.d("BetaCM");
   double hwBetaCM = parameters.d("hwBetaCM");
+  double BetaISO = parameters.d("BetaISO");
   double eta_criterion = parameters.d("eta_criterion");
   double hw_trap = parameters.d("hw_trap");
   double dE3max = parameters.d("dE3max");
@@ -543,6 +544,12 @@ int main(int argc, char** argv)
   }
 
 
+  // Add an isospin term (similar in behaviour to Lawson; to correct for HF breaking isospin https://linkinghub.elsevier.com/retrieve/pii/037594747090117X )
+  if (std::abs(BetaISO)>1e-3)
+   {
+    Hbare += BetaISO * imsrg_util::OperatorFromString( modelspace, "Iso2");
+  }
+
 
 
   std::cout << "Creating HF" << std::endl;
@@ -645,6 +652,12 @@ int main(int argc, char** argv)
 
 
   HNO -= BetaCM * 1.5*hwBetaCM; // This is just the zero-body piece. The other stuff was added earlier.
+
+  double Tz = 0.5 * (modelspace.GetAref() - 2 * modelspace.GetZref());
+  double T = abs(Tz);
+  HNO -= BetaISO * T * (T+1);
+
+
   std::cout << "Hbare 0b = " << std::setprecision(8) << HNO.ZeroBody << std::endl;
 
   if (method != "HF")
