@@ -109,6 +109,7 @@ std::map<std::string,double> Parameters::double_par = {
   {"denominator_delta",	   0},	// offset added to the denominator in the generator
   {"BetaCM",               0},  // Prefactor for Lawson-Glockner term
   {"hwBetaCM",            -1},  // Oscillator frequency used in the Lawson-Glockner term. Negative value means use the frequency of the basis
+  {"BetaISO",              0},  // Prefactor for isospin correction term
   {"eta_criterion",     1e-6},  // Threshold on ||eta|| for convergence in the flow
   {"hw_trap",             -1},  // Frequency for harmonic lab-frame trap V = 1/2 M omega**2 * r**2
   {"dE3max",		  99},  // cut on energies which limits the 3-body states considered in IMSRG(3) commutators
