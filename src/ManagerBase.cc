@@ -12,7 +12,17 @@
 #include "PhysicalConstants.hh"
 #include "version.hh"
 
-ManagerBase::ManagerBase(Parameters parameters) : parameters(parameters) {}
+ManagerBase::ManagerBase(Parameters parameters) : parameters(parameters) 
+  {
+      // initialize ReadWrite
+      std::string LECs = parameters.s("LECs");
+      std::string scratch = parameters.s("scratch");
+      std::string fmt3 = parameters.s("fmt3");
+
+      rw.SetLECs_preset(LECs);
+      rw.SetScratchDir(scratch);
+      rw.Set3NFormat( fmt3 );
+  }
 
 struct OpFromFile {
    std::string file2name,file3name,opname;
@@ -35,10 +45,8 @@ int ManagerBase::Solve()
   std::string core_generator = parameters.s("core_generator");
   std::string valence_generator = parameters.s("valence_generator");
   std::string fmt2 = parameters.s("fmt2");
-  std::string fmt3 = parameters.s("fmt3");
   std::string input_op_fmt = parameters.s("input_op_fmt");
   std::string denominator_delta_orbit = parameters.s("denominator_delta_orbit");
-  std::string LECs = parameters.s("LECs");
   std::string scratch = parameters.s("scratch");
   std::string valence_file_format = parameters.s("valence_file_format");
   std::string occ_file = parameters.s("occ_file");
@@ -193,15 +201,6 @@ int ManagerBase::Solve()
      // if the files look good, then add it to the list
      opsfromfile_unpacked.push_back( opff );
   }
-
-
-
-  ReadWrite rw;
-  rw.SetLECs_preset(LECs);
-  rw.SetScratchDir(scratch);
-  rw.Set3NFormat( fmt3 );
-
-
 
   // deal with some short-hand method names
   if (method == "NSmagnus") // "No split" magnus
@@ -1422,7 +1421,7 @@ int ManagerBase::Solve()
 
 
 
-
+// ReadWrite method
 
 
 //  std::cout << "Made it here and write_omega is " << write_omega << std::endl;
