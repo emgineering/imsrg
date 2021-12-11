@@ -170,6 +170,7 @@ OBJ = ModelSpace.o TwoBodyME.o ThreeBodyME.o Operator.o  ReadWrite.o\
       TwoBodyChannel.o ThreeBodyChannel.o \
       ThreeBodyStorage.o ThreeBodyStorage_pn.o ThreeBodyStorage_iso.o \
       ThreeBodyStorage_no2b.o ThreeBodyStorage_mono.o ThreeLegME.o  \
+	  ManagerBase.o \
       boost_src/gzip.o boost_src/zlib.o
 #      ThreeBodyStorage_no2b.o ThreeLegME.o ThreeBodyMENO2B.o \
 #      ThreeBodyMEpn.o ThreeLegME.o ThreeBodyMENO2B.o \
