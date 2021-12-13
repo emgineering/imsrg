@@ -24,10 +24,100 @@ ManagerBase::ManagerBase(Parameters parameters) : parameters(parameters)
       rw.Set3NFormat( fmt3 );
   }
 
-struct OpFromFile {
-   std::string file2name,file3name,opname;
-   int j,p,t,r; // J rank, parity, dTz, particle rank
-};
+
+
+// unpack the awkward input format for reading an operator from file, and put it into a struct.
+// the format should look like OpName^j_t_p_r^/path/to/2bfile^/path/to/3bfile  if particle rank of Op is 2-body, then 3bfile is not needed.
+std::vector<ManagerBase::OpFromFile> ManagerBase::GetOpsFromFile()
+{
+  std::vector<std::string> opsfromfile = parameters.v("OperatorsFromFile");
+
+  std::vector< OpFromFile> opsfromfile_unpacked;
+  // If we're reading in other operators, make sure those are ok too
+  for (auto& tag : opsfromfile)
+  {
+     std::istringstream ss(tag);
+     std::string opname,qnumbers,f2name,f3name="";
+
+     OpFromFile opff;
+  
+     getline(ss,opname,'^');
+     getline(ss,qnumbers,'^');
+     getline(ss,f2name,'^');
+     if ( not ss.eof() )  getline(ss,f3name,'^');
+     opff.opname = opname;
+     opff.file2name = f2name;
+     opff.file3name = f3name;
+
+      ss.str(qnumbers);
+      ss.clear();
+      std::string tmp;
+      getline(ss,tmp,'_');
+      std::istringstream(tmp) >> opff.j;
+      getline(ss,tmp,'_');
+      std::istringstream(tmp) >> opff.t;
+      getline(ss,tmp,'_');
+      std::istringstream(tmp) >> opff.p;
+      getline(ss,tmp,'_');
+      std::istringstream(tmp) >> opff.r;
+      
+      std::cout << "Parsed tag. opname = " << opff.opname << "  " << opff.j << " " << opff.t << " " << opff.p << " " << opff.r << "   file2 = " << opff.file2name   << "    file3 = " << opff.file3name << std::endl;
+
+      // now make sure the files exist before we add them to the list.
+
+//     if( not std::ifstream(f2name).good() )
+      EnsureReadable(opff.file2name);
+      if (opff.file3name != "") EnsureReadable(opff.file3name);
+
+     // if the files look good, then add it to the list
+     opsfromfile_unpacked.push_back( opff );
+  }
+  return opsfromfile_unpacked;
+}
+
+void ManagerBase::EnsureReadable(std::string filename)
+{
+  if( not std::ifstream(filename).good()  )
+  {
+    std::cout << "trouble reading " << filename << " exiting. " << std::endl;
+    exit(EXIT_FAILURE);
+  }
+}
+
+// Test whether the scratch directory exists and we can write to it.
+// This is necessary because otherwise you get garbage for transformed operators and it's
+// not obvious what went wrong.
+void ManagerBase::TestScratch()
+{
+  std::string scratch = parameters.s("scratch");
+
+  // TODO: consider better error handling
+
+  if ( scratch=="/dev/null" or scratch=="/dev/null/")
+  {
+    std::cout << "ERROR!!! using Magnus with scratch = " << scratch << " but you're also trying to transform some operators. Dying now. " << std::endl;
+    exit(EXIT_FAILURE);
+  }
+  else if ( scratch != "" )
+  {
+    std::string testfilename = scratch + "/_this_is_a_test_delete_me";
+    std::ofstream testout(testfilename);
+    testout << "PASSED" << std::endl;
+    testout.close();
+
+    // now read it back.
+    std::ifstream testin(testfilename);
+    std::string checkpassed;
+    testin >> checkpassed;
+    if ( (checkpassed != "PASSED") or ( not testout.good() ) or ( not testin.good() ) )
+    {
+      std::cout << "ERROR in " << __FILE__ <<  " failed test write to scratch directory " << scratch << " that's bad. Dying now." << std::endl;
+      exit(EXIT_FAILURE);
+    }
+  }
+}
+
+
 
 int ManagerBase::Solve() 
 {
@@ -112,7 +202,6 @@ int ManagerBase::Solve()
   double threebody_threshold = parameters.d("threebody_threshold");
 
   std::vector<std::string> opnames = parameters.v("Operators");
-  std::vector<std::string> opsfromfile = parameters.v("OperatorsFromFile");
   std::vector<std::string> opnamesPT1 = parameters.v("OperatorsPT1");
   std::vector<std::string> opnamesRPA = parameters.v("OperatorsRPA");
   std::vector<std::string> opnamesTDA = parameters.v("OperatorsTDA");
@@ -128,79 +217,16 @@ int ManagerBase::Solve()
   // test 2bme file
   if (inputtbme != "none" and fmt2.find("oakridge")==std::string::npos and fmt2 != "schematic" )
   {
-    if( not std::ifstream(inputtbme).good() )
-    {
-      std::cout << "trouble reading " << inputtbme << "  fmt2 = " << fmt2 << "   exiting. " << std::endl;
-      return 1;
-    }
+    std::cout << "fmt2 = " << fmt2 << ", need 2bme file" << std::endl;
+    EnsureReadable(inputtbme);
   }
   // test 3bme file
   if (input3bme != "none")
   {
-    if( not std::ifstream(input3bme).good() )
-    {
-      std::cout << "trouble reading " << input3bme << " exiting. " << std::endl;
-      return 1;
-    }
+    EnsureReadable(input3bme);
   }
 
-  // unpack the awkward input format for reading an operator from file, and put it into a struct.
-  // the format should look like OpName^j_t_p_r^/path/to/2bfile^/path/to/3bfile  if particle rank of Op is 2-body, then 3bfile is not needed.
-  std::vector< OpFromFile> opsfromfile_unpacked;
-  // If we're reading in other operators, make sure those are ok too
-  for (auto& tag : opsfromfile)
-  {
-     std::istringstream ss(tag);
-     std::string opname,qnumbers,f2name,f3name="";
-
-     OpFromFile opff;
-  
-     getline(ss,opname,'^');
-     getline(ss,qnumbers,'^');
-     getline(ss,f2name,'^');
-     if ( not ss.eof() )  getline(ss,f3name,'^');
-     opff.opname = opname;
-     opff.file2name = f2name;
-     opff.file3name = f3name;
-
-      ss.str(qnumbers);
-      ss.clear();
-      std::string tmp;
-      getline(ss,tmp,'_');
-      std::istringstream(tmp) >> opff.j;
-      getline(ss,tmp,'_');
-      std::istringstream(tmp) >> opff.t;
-      getline(ss,tmp,'_');
-      std::istringstream(tmp) >> opff.p;
-      getline(ss,tmp,'_');
-      std::istringstream(tmp) >> opff.r;
-      
-      std::cout << "Parsed tag. opname = " << opff.opname << "  " << opff.j << " " << opff.t << " " << opff.p << " " << opff.r << "   file2 = " << opff.file2name   << "    file3 = " << opff.file3name << std::endl;
-
-      // now make sure the files exist before we add them to the list.
-
-//     if( not std::ifstream(f2name).good() )
-     if( not std::ifstream(opff.file2name).good() )
-     {
-//       std::cout << "trouble reading " << f2name << " exiting. " << std::endl;
-       std::cout << "trouble reading " << opff.file2name << " exiting. " << std::endl;
-       return 1;
-     }
-
-     if ( opff.file3name != "") // is there a 3-body file too?
-     {
-//       getline(ss,f3name,'^');
-//       if( not std::ifstream(f3name).good() )
-       if( not std::ifstream(opff.file3name).good() )
-       {
-         std::cout << "trouble reading " << opff.file3name << " exiting. " << std::endl;
-//         std::cout << "trouble reading " << f3name << " exiting. " << std::endl;
-         return 1;
-       }
-     }
-     // if the files look good, then add it to the list
-     opsfromfile_unpacked.push_back( opff );
-  }
+  std::vector< OpFromFile> opsfromfile_unpacked = GetOpsFromFile();
 
   // deal with some short-hand method names
   if (method == "NSmagnus") // "No split" magnus
@@ -223,35 +249,10 @@ int ManagerBase::Solve()
 
 
 
-  // Test whether the scratch directory exists and we can write to it.
-  // This is necessary because otherwise you get garbage for transformed operators and it's
-  // not obvious what went wrong.
-  if ( (method == "magnus") and  ( (opnames.size() + opsfromfile.size()) > 0 )  )
+  if ( (method == "magnus") and  ( (opnames.size() + opsfromfile_unpacked.size()) > 0 )  )
   {
-    if ( scratch=="/dev/null" or scratch=="/dev/null/")
-    {
-      std::cout << "ERROR!!! using Magnus with scratch = " << scratch << " but you're also trying to transform some operators. Dying now. " << std::endl;
-      exit(EXIT_FAILURE);
-    }
-    else if ( scratch != "" )
-    {
-      std::string testfilename = scratch + "/_this_is_a_test_delete_me";
-      std::ofstream testout(testfilename);
-      testout << "PASSED" << std::endl;
-      testout.close();
-
-      // now read it back.
-      std::ifstream testin(testfilename);
-      std::string checkpassed;
-      testin >> checkpassed;
-      if ( (checkpassed != "PASSED") or ( not testout.good() ) or ( not testin.good() ) )
-      {
-        std::cout << "ERROR in " << __FILE__ <<  " failed test write to scratch directory " << scratch << " that's bad. Dying now." << std::endl;
-        exit(EXIT_FAILURE);
-      }
-
-    }
-  }
+    TestScratch();
+  } 
 
 
 //  ModelSpace modelspace;
