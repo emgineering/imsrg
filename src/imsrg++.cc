@@ -544,10 +544,13 @@ int main(int argc, char** argv)
   }
 
 
+  // TODO: remove the extra operator var
+  Operator Iso;
   // Add an isospin term (similar in behaviour to Lawson; to correct for HF breaking isospin https://linkinghub.elsevier.com/retrieve/pii/037594747090117X )
   if (std::abs(BetaISO)>1e-3)
    {
-    Hbare += BetaISO * imsrg_util::OperatorFromString( modelspace, "Iso2");
+     Iso = imsrg_util::OperatorFromString( modelspace, "Iso2");
+    Hbare += BetaISO * Iso; //imsrg_util::OperatorFromString( modelspace, "Iso2");
   }
 
 
@@ -563,6 +566,16 @@ int main(int argc, char** argv)
   {
     hf.Solve();
   }
+
+
+  // TODO: remove (for testing only)
+  double Tz = 0.5 * (modelspace.GetAref() - 2 * modelspace.GetZref());
+  double T = abs(Tz);
+  double isoshouldbe = T * (T + 1);
+  Iso = hf.TransformToHFBasis(Iso);
+  Iso = Iso.DoNormalOrdering();
+  std::cout << "Isospin after HF - expected: " << isoshouldbe << " calculated: " << Iso.ZeroBody << std::endl;
+
 
   // decide what to keep after normal ordering
   int hno_particle_rank = 2;
@@ -653,8 +666,9 @@ int main(int argc, char** argv)
 
   HNO -= BetaCM * 1.5*hwBetaCM; // This is just the zero-body piece. The other stuff was added earlier.
 
-  double Tz = 0.5 * (modelspace.GetAref() - 2 * modelspace.GetZref());
-  double T = abs(Tz);
+  // TODO: uncomment these once testing of HF isospin breaking is done
+  // double Tz = 0.5 * (modelspace.GetAref() - 2 * modelspace.GetZref());
+  // double T = abs(Tz);
   HNO -= BetaISO * T * (T+1);
 
 
@@ -917,6 +931,9 @@ int main(int argc, char** argv)
     HNO.PrintTimes();
     return 0;
   }
+
+
+
 
   IMSRGSolver imsrgsolver(HNO);
 //  imsrgsolver.SetHin(HNO); // necessary?
@@ -1469,8 +1486,9 @@ int main(int argc, char** argv)
 
 
 
-
-
+  // TODO: remove. for testing only
+  Iso = imsrgsolver.Transform(Iso);
+  std::cout << "Isospin after IMSRG - expected: " << isoshouldbe << " calculated: " << Iso.ZeroBody << std::endl;
 
 
 
