@@ -10,119 +10,132 @@
 #include "IMSRG.hh"
 #include "Parameters.hh"
 #include "PhysicalConstants.hh"
+#include "ModelSpace.hh"
+#include "IMSRGSolver.hh"
+#include "HFMBPT.hh"
 #include "version.hh"
 
-ManagerBase::ManagerBase(Parameters parameters) : parameters(parameters) 
-  {
-      // initialize ReadWrite
-      std::string LECs = parameters.s("LECs");
-      std::string scratch = parameters.s("scratch");
-      std::string fmt3 = parameters.s("fmt3");
+ManagerBase::ManagerBase(Parameters parameters) : 
+  parameters(parameters), 
+  method(parameters.s("method")),
+  opnames(parameters.v("Operators")),
+  flowfile(parameters.s("flowfile")),
+  intfile(parameters.s("intfile"))
+{
+    // initialize ReadWrite
+    std::string LECs = parameters.s("LECs");
+    std::string scratch = parameters.s("scratch");
+    std::string fmt3 = parameters.s("fmt3");
 
-      rw.SetLECs_preset(LECs);
-      rw.SetScratchDir(scratch);
-      rw.Set3NFormat( fmt3 );
-  }
-
-struct OpFromFile {
-   std::string file2name,file3name,opname;
-   int j,p,t,r; // J rank, parity, dTz, particle rank
-};
+    rw.SetLECs_preset(LECs);
+    rw.SetScratchDir(scratch);
+    rw.Set3NFormat( fmt3 );
+}
+  
 
 int ManagerBase::Solve() 
 {
-  std::string inputtbme = parameters.s("2bme");
-  std::string input3bme = parameters.s("3bme");
-  std::string input3bme_type = parameters.s("3bme_type");
-  std::string no2b_precision = parameters.s("no2b_precision");
-  std::string reference = parameters.s("reference");
-  std::string valence_space = parameters.s("valence_space");
-  std::string custom_valence_space = parameters.s("custom_valence_space");
   std::string basis = parameters.s("basis");
-  std::string method = parameters.s("method");
-  std::string flowfile = parameters.s("flowfile");
-  std::string intfile = parameters.s("intfile");
-  std::string core_generator = parameters.s("core_generator");
-  std::string valence_generator = parameters.s("valence_generator");
-  std::string fmt2 = parameters.s("fmt2");
-  std::string input_op_fmt = parameters.s("input_op_fmt");
-  std::string denominator_delta_orbit = parameters.s("denominator_delta_orbit");
-  std::string scratch = parameters.s("scratch");
-  std::string valence_file_format = parameters.s("valence_file_format");
-  std::string occ_file = parameters.s("occ_file");
-  std::string physical_system = parameters.s("physical_system");
-  std::string denominator_partitioning = parameters.s("denominator_partitioning");
-  std::string NAT_order = parameters.s("NAT_order");
-
-  bool use_brueckner_bch = parameters.s("use_brueckner_bch") == "true";
-  bool nucleon_mass_correction = parameters.s("nucleon_mass_correction") == "true";
-  bool relativistic_correction = parameters.s("relativistic_correction") == "true";
-  bool IMSRG3 = parameters.s("IMSRG3") == "true";
-  bool imsrg3_n7 = parameters.s("imsrg3_n7") == "true";
-  bool imsrg3_at_end = parameters.s("imsrg3_at_end") == "true";
+  bool only_2b_omega = parameters.s("only_2b_omega") == "true";
   bool write_omega = parameters.s("write_omega") == "true";
-  bool freeze_occupations = parameters.s("freeze_occupations")=="true";
-  bool discard_no2b_from_3n = parameters.s("discard_no2b_from_3n")=="true";
-  bool hunter_gatherer = parameters.s("hunter_gatherer") == "true";
-  bool goose_tank = parameters.s("goose_tank") == "true";
-  bool discard_residual_input3N = parameters.s("discard_residual_input3N")=="true";
-  bool use_NAT_occupations = (parameters.s("use_NAT_occupations")=="true") ? true : false;
-  bool order_NAT_by_energy = (parameters.s("order_NAT_by_energy")=="true") ? true : false;
-  bool store_3bme_pn = (parameters.s("store_3bme_pn")=="true");
-  bool only_2b_eta = (parameters.s("only_2b_eta")=="true");
-  bool only_2b_omega = (parameters.s("only_2b_omega")=="true");
-  bool perturbative_triples = (parameters.s("perturbative_triples")=="true");
-  bool brueckner_restart = false;
-
-  int eMax = parameters.i("emax");
-  int lmax = parameters.i("lmax"); // so far I only use this with atomic systems.
-  int E3max = parameters.i("e3max");
-  int lmax3 = parameters.i("lmax3");
-  int targetMass = parameters.i("A");
-  int nsteps = parameters.i("nsteps");
-  int file2e1max = parameters.i("file2e1max");
-  int file2e2max = parameters.i("file2e2max");
-  int file2lmax = parameters.i("file2lmax");
-  int file3e1max = parameters.i("file3e1max");
-  int file3e2max = parameters.i("file3e2max");
-  int file3e3max = parameters.i("file3e3max");
-  int atomicZ = parameters.i("atomicZ");
-  int emax_unocc = parameters.i("emax_unocc");
-  int eMax_imsrg = parameters.i("emax_imsrg");
-  int e2Max_imsrg = parameters.i("e2max_imsrg");
-  int e3Max_imsrg = parameters.i("e3max_imsrg");
-  if (e2Max_imsrg==-1 and eMax_imsrg != -1) e2Max_imsrg = 2*eMax_imsrg;
-  if (e3Max_imsrg==-1 and eMax_imsrg != -1) e3Max_imsrg = std::min(E3max, 3*eMax_imsrg);
-
-  double hw = parameters.d("hw");
-  double smax = parameters.d("smax");
-  double ode_tolerance = parameters.d("ode_tolerance");
-  double dsmax = parameters.d("dsmax");
-  double ds_0 = parameters.d("ds_0");
-  double domega = parameters.d("domega");
-  double omega_norm_max = parameters.d("omega_norm_max");
-  double denominator_delta = parameters.d("denominator_delta");
-  double BetaCM = parameters.d("BetaCM");
-  double hwBetaCM = parameters.d("hwBetaCM");
-  double BetaISO = parameters.d("BetaISO");
-  double eta_criterion = parameters.d("eta_criterion");
-  double hw_trap = parameters.d("hw_trap");
-  double dE3max = parameters.d("dE3max");
-  double OccNat3Cut = parameters.d("OccNat3Cut");
-  double threebody_threshold = parameters.d("threebody_threshold");
-
-  std::vector<std::string> opnames = parameters.v("Operators");
-  std::vector<std::string> opsfromfile = parameters.v("OperatorsFromFile");
-  std::vector<std::string> opnamesPT1 = parameters.v("OperatorsPT1");
-  std::vector<std::string> opnamesRPA = parameters.v("OperatorsRPA");
-  std::vector<std::string> opnamesTDA = parameters.v("OperatorsTDA");
-
-  std::vector<Operator> ops;
   std::vector<std::string> spwf = parameters.v("SPWF");
 
-  using PhysConst::PROTON_RCH2;
-  using PhysConst::NEUTRON_RCH2;
-  using PhysConst::DARWIN_FOLDY;
+  std::vector<Operator> ops;
+
+  ParseParameterShorthand();
+  ValidateReadWriteFiles();
+
+  ModelSpace modelspace = ConfigureInputModelSpace();
+
+  // For both dagger operators and single particle wave functions, it's convenient to
+  // just get every orbit in the valence space. So if SPWF="valence" ,  we append all valence orbits
+  if ( std::find( spwf.begin(), spwf.end(), "valence" ) != spwf.end() )
+  {
+    // this erase/remove idiom is needed because remove just shuffles things around rather than actually removing it.
+    spwf.erase( std::remove( spwf.begin(), spwf.end(), "valence" ), std::end(spwf) );
+    for ( auto v : modelspace.valence )
+    {
+      spwf.push_back( modelspace.Index2String(v) );
+    }
+  }
+
+  opnames = OpParseUtil::ExpandOperatorShorthand(opnames, modelspace);
+
+  Operator Hbare = SetupHamiltonian(modelspace);
+  Operator& HNO = Hbare;
+
+  // Performs basis transformations to HF, NAT if necessary, and does normal ordering
+  HNO = GetHNOInBasis(basis, Hbare);
+
+  // Log output
+  imsrg_util::WriteSPWaveFunctions( spwf, *hf_p, intfile);
+  if (method != "HF")
+    PrintPerturbativeEstimates(HNO);
+  std::cout << "done with pert stuff, method = " << method << std::endl;
+
+
+  if ( method != "magnus" )
+  {
+    // Calculate all the desired operators. If we're using magnus, we'll do this after the flow is over
+    TransformOperatorsConcurrent(HNO);
+  }
+
+  if (basis=="HF" or basis=="NAT")
+  {
+    std::cout << basis << " Single particle energies and wave functions:" << std::endl;
+    (*hf_p).PrintSPEandWF();
+    std::cout << std::endl;
+  }
+
+  // TODO: avoid early returns if possible. Maybe deal with this via subclassing instead of if statements
+  // since methods seem to give significantly different behaviour in contained tasks
+  if ( method == "HF" )
+  {
+    HNO.PrintTimes();
+    return 0;
+  }
+  else if ( method == "FCI")
+  {
+    return FCIMethodStuff(HNO);
+  }
+
+  // TODO: where does this belong?
+   if (only_2b_omega)
+  {
+    std::cout << " Restricting the Magnus operator Omega to be 2b." << std::endl;
+    Commutator::SetOnly2bOmega(only_2b_omega);
+  }
+
+  TruncateModelSpace(HNO);
+
+  if ( method == "MP3" )
+  {
+    HNO.PrintTimes();
+    return 0;
+  }
+
+  SolveIMSRG(HNO);
+
+
+  // if (IMSRG3)
+  // {
+  //   std::cout << "Norm of 3-body = " << imsrgsolver.GetH_s().ThreeBodyNorm() << std::endl;
+  // }
+  
+  
+  if (write_omega) WriteOmega();
+  
+  HNO.PrintTimes();
+  return EXIT_SUCCESS;
+}
+
+
+
+void ManagerBase::ValidateReadWriteFiles()
+{
+  std::string inputtbme = parameters.s("2bme");
+  std::string input3bme = parameters.s("3bme");
+  std::string fmt2 = parameters.s("fmt2");
 
 
   // test 2bme file
@@ -131,7 +144,7 @@ int ManagerBase::Solve()
     if( not std::ifstream(inputtbme).good() )
     {
       std::cout << "trouble reading " << inputtbme << "  fmt2 = " << fmt2 << "   exiting. " << std::endl;
-      return 1;
+      exit(EXIT_FAILURE);
     }
   }
   // test 3bme file
@@ -140,15 +153,25 @@ int ManagerBase::Solve()
     if( not std::ifstream(input3bme).good() )
     {
       std::cout << "trouble reading " << input3bme << " exiting. " << std::endl;
-      return 1;
+      exit(EXIT_FAILURE);
     }
   }
 
+  std::vector<std::string> opsfromfile = parameters.v("OperatorsFromFile");
+  opsfromfile_unpacked = OpParseUtil::GetOpsFromFile(opsfromfile);
+
+  TestScratch();
+}
+
+std::vector<OpParseUtil::OpFromFile> OpParseUtil::GetOpsFromFile(std::vector<std::string> tags)
+{
   // unpack the awkward input format for reading an operator from file, and put it into a struct.
   // the format should look like OpName^j_t_p_r^/path/to/2bfile^/path/to/3bfile  if particle rank of Op is 2-body, then 3bfile is not needed.
-  std::vector< OpFromFile> opsfromfile_unpacked;
+
+  std::vector<OpFromFile> unpacked;
+
   // If we're reading in other operators, make sure those are ok too
-  for (auto& tag : opsfromfile)
+  for (auto& tag : tags)
   {
      std::istringstream ss(tag);
      std::string opname,qnumbers,f2name,f3name="";
@@ -184,7 +207,7 @@ int ManagerBase::Solve()
      {
 //       std::cout << "trouble reading " << f2name << " exiting. " << std::endl;
        std::cout << "trouble reading " << opff.file2name << " exiting. " << std::endl;
-       return 1;
+       exit(EXIT_FAILURE);
      }
 
      if ( opff.file3name != "") // is there a 3-body file too?
@@ -195,38 +218,59 @@ int ManagerBase::Solve()
        {
          std::cout << "trouble reading " << opff.file3name << " exiting. " << std::endl;
 //         std::cout << "trouble reading " << f3name << " exiting. " << std::endl;
-         return 1;
+         exit(EXIT_FAILURE);
        }
      }
      // if the files look good, then add it to the list
-     opsfromfile_unpacked.push_back( opff );
+     unpacked.push_back( opff );
   }
+  return unpacked;
+}
 
+// TODO:
+// - check if directly setting parameters here even works, or
+// - parse these imsrg-related parameters at point of use, or
+// - make all these member variables
+void ManagerBase::ParseParameterShorthand()
+{
   // deal with some short-hand method names
   if (method == "NSmagnus") // "No split" magnus
   {
-    omega_norm_max=50000;
+    parameters.double_par["omega_norm_max"] = 50000;
+    // omega_norm_max=50000;
     method = "magnus";
   }
   if (method.find("brueckner") != std::string::npos)
   {
-    if (method=="brueckner2") brueckner_restart=true;
+    if (method=="brueckner2") 
+    {
+      parameters.string_par["brueckner_restart"] = "true";
+      // brueckner_restart=true;
+    }
     if (method=="brueckner1step")
     {
-       nsteps = 1;
-       core_generator = valence_generator;
+      parameters.int_par["nsteps"] = 1;
+      parameters.string_par["core_generator"] = parameters.s("valence_generator");
+      //  nsteps = 1;
+      //  core_generator = valence_generator;
     }
-    use_brueckner_bch = true;
-    omega_norm_max=500;
+    parameters.double_par["omega_norm_max"] = 500;
+    parameters.string_par["use_brueckner_bch"] = "true";
+    // use_brueckner_bch = true;
+    // omega_norm_max=500;
     method = "magnus";
   }
+}
 
-
+void ManagerBase::TestScratch()
+{
+  std::vector<std::string> opnames = parameters.v("Operators");
+  std::string scratch = rw.GetScratchDir();
 
   // Test whether the scratch directory exists and we can write to it.
   // This is necessary because otherwise you get garbage for transformed operators and it's
   // not obvious what went wrong.
-  if ( (method == "magnus") and  ( (opnames.size() + opsfromfile.size()) > 0 )  )
+  if ( (method == "magnus") and  ( (opnames.size() + opsfromfile_unpacked.size()) > 0 )  )
   {
     if ( scratch=="/dev/null" or scratch=="/dev/null/")
     {
@@ -252,9 +296,26 @@ int ManagerBase::Solve()
 
     }
   }
+}
 
+ModelSpace ManagerBase::ConfigureInputModelSpace()
+{
+  std::string reference = parameters.s("reference");
+  std::string valence_space = parameters.s("valence_space");
+  std::string custom_valence_space = parameters.s("custom_valence_space");
+  std::string physical_system = parameters.s("physical_system");
+  std::string basis = parameters.s("basis");
+  std::string occ_file = parameters.s("occ_file");
 
-//  ModelSpace modelspace;
+  int eMax = parameters.i("emax");
+  int lmax = parameters.i("lmax"); // so far I only use this with atomic systems.
+  int E3max = parameters.i("e3max");
+  int emax_unocc = parameters.i("emax_unocc");
+  int nsteps = parameters.i("nsteps");
+  int lmax3 = parameters.i("lmax3");
+  int targetMass = parameters.i("A");
+
+  double hw = parameters.d("hw");
 
   if (custom_valence_space!="") // if a custom space is defined, the input valence_space is just used as a name
   {
@@ -268,7 +329,7 @@ int ManagerBase::Solve()
   }
 
 
-  ModelSpace modelspace = ( reference=="default" ? ModelSpace(eMax,valence_space) : ModelSpace(eMax,reference,valence_space) );
+  modelspace = ( reference=="default" ? ModelSpace(eMax,valence_space) : ModelSpace(eMax,reference,valence_space) );
 
 //  std::cout << __LINE__ << "  constructed modelspace " << std::endl;
   modelspace.SetE3max(E3max);
@@ -302,20 +363,11 @@ int ManagerBase::Solve()
   if (lmax3>0)
      modelspace.SetLmax3(lmax3);
 
+  return modelspace;
+}
 
-
-// For both dagger operators and single particle wave functions, it's convenient to
-// just get every orbit in the valence space. So if SPWF="valence" ,  we append all valence orbits
-  if ( std::find( spwf.begin(), spwf.end(), "valence" ) != spwf.end() )
-  {
-    // this erase/remove idiom is needed because remove just shuffles things around rather than actually removing it.
-    spwf.erase( std::remove( spwf.begin(), spwf.end(), "valence" ), std::end(spwf) );
-    for ( auto v : modelspace.valence )
-    {
-      spwf.push_back( modelspace.Index2String(v) );
-    }
-  }
-
+std::vector<std::string> OpParseUtil::ExpandOperatorShorthand(std::vector<std::string> opnames, ModelSpace& modelspace)
+{
   if ( std::find( opnames.begin(), opnames.end(), "rhop_all") != opnames.end() )
   {
     opnames.erase( std::remove( opnames.begin(), opnames.end(), "rhop_all"), std::end(opnames) );
@@ -362,8 +414,40 @@ int ManagerBase::Solve()
     std::cout << std::endl;
   }
 
+  return opnames;
+}
 
-//  std::cout << "Making the Hamiltonian..." << std::endl;
+
+Operator ManagerBase::SetupHamiltonian(ModelSpace& modelspace)
+{
+  std::string inputtbme = parameters.s("2bme");
+  std::string input3bme = parameters.s("3bme");
+  std::string fmt2 = parameters.s("fmt2");
+  std::string input3bme_type = parameters.s("3bme_type");
+  std::string no2b_precision = parameters.s("no2b_precision");
+  std::string physical_system = parameters.s("physical_system");
+
+  bool goose_tank = parameters.s("goose_tank") == "true";
+  bool store_3bme_pn = (parameters.s("store_3bme_pn")=="true");
+  bool nucleon_mass_correction = parameters.s("nucleon_mass_correction") == "true";
+  bool relativistic_correction = parameters.s("relativistic_correction") == "true";
+
+  int atomicZ = parameters.i("atomicZ");
+
+  double hw_trap = parameters.d("hw_trap");
+  double threebody_threshold = parameters.d("threebody_threshold");
+  double BetaCM = parameters.d("BetaCM");
+  double hwBetaCM = parameters.d("hwBetaCM");
+  double BetaISO = parameters.d("BetaISO");
+
+  int file2e1max = parameters.i("file2e1max");
+  int file2e2max = parameters.i("file2e2max");
+  int file2lmax = parameters.i("file2lmax");
+  int file3e1max = parameters.i("file3e1max");
+  int file3e2max = parameters.i("file3e2max");
+  int file3e3max = parameters.i("file3e3max");
+
+  //  std::cout << "Making the Hamiltonian..." << std::endl;
   int particle_rank = input3bme=="none" ? 2 : 3;
   Operator Hbare = Operator(modelspace,0,0,0,particle_rank);
   Hbare.SetHermitian();
@@ -444,8 +528,8 @@ int ManagerBase::Solve()
     using PhysConst::M_ELECTRON;
     using PhysConst::M_NUCLEON;
     int Z = (atomicZ>=0) ?  atomicZ : modelspace.GetTargetZ() ;
-    Hbare -= Z*imsrg_util::VCentralCoulomb_Op(modelspace, lmax) * sqrt((M_ELECTRON*1e6)/M_NUCLEON ) ;
-    Hbare += imsrg_util::VCoulomb_Op(modelspace, lmax) * sqrt((M_ELECTRON*1e6)/M_NUCLEON ) ;  // convert oscillator length from fm with nucleon mass to nm with electon mass (in eV).
+    Hbare -= Z*imsrg_util::VCentralCoulomb_Op(modelspace, modelspace.Lmax) * sqrt((M_ELECTRON*1e6)/M_NUCLEON ) ;
+    Hbare += imsrg_util::VCoulomb_Op(modelspace, modelspace.Lmax) * sqrt((M_ELECTRON*1e6)/M_NUCLEON ) ;  // convert oscillator length from fm with nucleon mass to nm with electon mass (in eV).
     Hbare += imsrg_util::KineticEnergy_Op(modelspace); // Don't need to rescale this, because it's related to the oscillator frequency, which we input.
     Hbare /= PhysConst::HARTREE; // Convert to Hartree
   }
@@ -497,17 +581,37 @@ int ManagerBase::Solve()
     Hbare += BetaISO * imsrg_util::OperatorFromString( modelspace, "Iso2");
   }
 
+  return Hbare;
+}
+
+Operator ManagerBase::GetHNOInBasis(std::string basis, Operator& Hbare)
+{
+  bool freeze_occupations = parameters.s("freeze_occupations")=="true";
+  bool discard_no2b_from_3n = parameters.s("discard_no2b_from_3n")=="true";
+
+  bool IMSRG3 = parameters.s("IMSRG3") == "true";
+  bool discard_residual_input3N = parameters.s("discard_residual_input3N")=="true";
+  std::string input3bme_type = parameters.s("3bme_type");
+  bool perturbative_triples = (parameters.s("perturbative_triples")=="true");
+
+  bool order_NAT_by_energy = (parameters.s("order_NAT_by_energy")=="true") ? true : false;
+  bool use_NAT_occupations = (parameters.s("use_NAT_occupations")=="true") ? true : false;
+  std::string NAT_order = parameters.s("NAT_order");
+
+  double OccNat3Cut = parameters.d("OccNat3Cut");
+  double dE3max = parameters.d("dE3max");
 
 
   std::cout << "Creating HF" << std::endl;
   HFMBPT hf(Hbare); // HFMBPT inherits from HartreeFock, so this works for HF and NAT bases.
+  hf_p = &hf;
 
   if (not freeze_occupations )  hf.UnFreezeOccupations();
   if ( discard_no2b_from_3n) hf.DiscardNO2Bfrom3N();
-  std::cout << "Solving" << std::endl;
 
   if (basis!="oscillator")
   {
+    std::cout << "Solving" << std::endl;
     hf.Solve();
   }
 
@@ -557,6 +661,7 @@ int ManagerBase::Solve()
     HNO = Hbare.DoNormalOrdering();
   }
 
+  // TODO: ask about this section
   if (perturbative_triples)
   {
     modelspace.SetdE3max(dE3max);
@@ -588,15 +693,10 @@ int ManagerBase::Solve()
     }
   }
 
-
-
-//  if ( spwf.size() > 0 )
-//  {
-    // If the length of spwf is zero, nothing happens
-    imsrg_util::WriteSPWaveFunctions( spwf, hf, intfile);
-//  }
-
-
+  // TODO: move these corrections?
+  double BetaCM = parameters.d("BetaCM");
+  double hwBetaCM = parameters.d("hwBetaCM");
+  double BetaISO = parameters.d("BetaISO");
 
   HNO -= BetaCM * 1.5*hwBetaCM; // This is just the zero-body piece. The other stuff was added earlier.
 
@@ -604,28 +704,46 @@ int ManagerBase::Solve()
   double T = abs(Tz);
   HNO -= BetaISO * T * (T+1);
 
-
   std::cout << "Hbare 0b = " << std::setprecision(8) << HNO.ZeroBody << std::endl;
 
-  if (method != "HF")
-  {
-    std::cout << "Perturbative estimates of gs energy:" << std::endl;
-    double EMP2 = HNO.GetMP2_Energy();
-    double EMP2_3B = HNO.GetMP2_3BEnergy();
-    std::cout << "EMP2 = " << EMP2 << std::endl;
-    std::cout << "EMP2_3B = " << EMP2_3B << std::endl;
-    std::array<double,3> Emp_3 = HNO.GetMP3_Energy();
-    double EMP3 = Emp_3[0]+Emp_3[1]+Emp_3[2];
-    std::cout << "E3_pp = " << Emp_3[0] << "  E3_hh = " << Emp_3[1] << " E3_ph = " << Emp_3[2] << "   EMP3 = " << EMP3 << std::endl;
-    std::cout << "To 3rd order, E = " << HNO.ZeroBody + EMP2 + EMP3 + EMP2_3B << std::endl;
-  }
+
+  return HNO;
+}
 
 
+void ManagerBase::PrintPerturbativeEstimates(Operator& H){
 
-  std::cout << "done with pert stuff, method = " << method << std::endl;
-  // Calculate all the desired operators. If we're using magnus, we'll do this after the flow is over
-  if ( method != "magnus" )
-  {
+  std::cout << "Perturbative estimates of gs energy:" << std::endl;
+  double EMP2 = H.GetMP2_Energy();
+  double EMP2_3B = H.GetMP2_3BEnergy();
+  std::cout << "EMP2 = " << EMP2 << std::endl;
+  std::cout << "EMP2_3B = " << EMP2_3B << std::endl;
+  std::array<double,3> Emp_3 = H.GetMP3_Energy();
+  double EMP3 = Emp_3[0]+Emp_3[1]+Emp_3[2];
+  std::cout << "E3_pp = " << Emp_3[0] << "  E3_hh = " << Emp_3[1] << " E3_ph = " << Emp_3[2] << "   EMP3 = " << EMP3 << std::endl;
+  std::cout << "To 3rd order, E = " << H.ZeroBody + EMP2 + EMP3 + EMP2_3B << std::endl;
+}
+
+std::vector<Operator>& ManagerBase::TransformOperatorsConcurrent(Operator& HNO)
+{
+  std::vector<std::string> opnamesPT1 = parameters.v("OperatorsPT1");
+  std::vector<std::string> opnamesRPA = parameters.v("OperatorsRPA");
+  std::vector<std::string> opnamesTDA = parameters.v("OperatorsTDA");
+
+  int file3e1max = parameters.i("file3e1max");
+  int file3e2max = parameters.i("file3e2max");
+  int file3e3max = parameters.i("file3e3max");
+
+  std::string input_op_fmt = parameters.s("input_op_fmt");
+  std::string basis = parameters.s("basis");
+
+  using PhysConst::PROTON_RCH2;
+  using PhysConst::NEUTRON_RCH2;
+  using PhysConst::DARWIN_FOLDY;
+
+  HFMBPT hf = *hf_p;
+
+  std::vector<Operator> ops;
 
     for (auto& opname : opnames)
     {
@@ -715,28 +833,16 @@ int ManagerBase::Solve()
    }// for ops.size
 
 
+   return ops;
+}
 
+// TODO: deal with this
+// TODO #2: carefully trace where modelspace is passed by reference/value.
+// Changed modelspace to HNO.modelspace in this method and not sure if this is valid
+int ManagerBase::FCIMethodStuff(Operator& HNO)
+{
+  std::string valence_file_format = parameters.s("valence_file_format");
 
-  }// if method != "magnus"
-
-
-  if (basis=="HF" or basis=="NAT")
-  {
-    std::cout << basis << " Single particle energies and wave functions:" << std::endl;
-    hf.PrintSPEandWF();
-    std::cout << std::endl;
-  }
-
-//  if ( method == "HF" or method == "MP3")
-  if ( method == "HF" )
-  {
-    HNO.PrintTimes();
-    return 0;
-  }
-
-
-  if (method == "FCI")
-  {
    if ( valence_file_format == "tokyo" )
    {
       HNO = HNO.UndoNormalOrdering();
@@ -745,8 +851,7 @@ int ManagerBase::Solve()
          ops[i] = ops[i].UndoNormalOrdering();
       }
 
-
-      modelspace.SetReference("vacuum");
+      (*HNO.modelspace).SetReference("vacuum");
       rw.WriteTokyo(HNO,intfile+".snt", "");
       // Haven't yet implemented FCI operators for Tokyo format. I should do this...
       for (size_t i=0; i<ops.size();i++)
@@ -766,7 +871,7 @@ int ManagerBase::Solve()
      // we want the 1b piece to be diagonal in the vacuum NO representation
       HNO = HNO.UndoNormalOrdering();
       double previous_zero_body = HNO.ZeroBody;
-      modelspace.SetReference("vacuum");
+      (*HNO.modelspace).SetReference("vacuum");
       HartreeFock hfvac(HNO);
       hfvac.Solve();
   
@@ -796,21 +901,34 @@ int ManagerBase::Solve()
     }
     HNO.PrintTimes();
     return 0;
-  }
-  if (only_2b_omega)
-  {
-    std::cout << " Restricting the Magnus operator Omega to be 2b." << std::endl;
-    Commutator::SetOnly2bOmega(only_2b_omega);
-  }
-
+}
 
   // We may want to use a smaller model space for the IMSRG evolution than we used for the HF step.
   // This is most effective when using natural orbitals.
-//  ModelSpace modelspace_imsrg = ( reference=="default" ? ModelSpace(eMax_imsrg,e2Max_imsrg,e3Max_imsrg,valence_space) : ModelSpace(eMax_imsrg,e2Max_imsrg,e3Max_imsrg,reference,valence_space) );
-  ModelSpace modelspace_imsrg = modelspace;
-  if ( (eMax_imsrg != -1) or (e2Max_imsrg != -1) or (e3Max_imsrg) != -1)
+void ManagerBase::TruncateModelSpace(Operator& HNO)
+{
+  int eMax_imsrg = parameters.i("emax_imsrg");
+  int e2Max_imsrg = parameters.i("e2max_imsrg");
+  int e3Max_imsrg = parameters.i("e3max_imsrg");
+  int E3max = parameters.i("e3max");
+  if (e2Max_imsrg==-1 and eMax_imsrg != -1) e2Max_imsrg = 2*eMax_imsrg;
+  if (e3Max_imsrg==-1 and eMax_imsrg != -1) e3Max_imsrg = std::min(E3max, 3*eMax_imsrg);
+
+  std::string physical_system = parameters.s("physical_system");
+  std::string occ_file = parameters.s("occ_file");
+  std::string reference = parameters.s("reference");
+  std::string valence_space = parameters.s("valence_space");
+
+
+  modelspace_imsrg = modelspace;
+
+  if ( (eMax_imsrg == -1) and (e2Max_imsrg == -1) and (e3Max_imsrg) == -1)
   {
-//     ModelSpace modelspace_imsrg = modelspace;
+    HNO.SetModelSpace(modelspace_imsrg);
+    return;
+  }
+  else
+  {
      std::cout << "Truncating modelspace for IMSRG calculation: emax e2max e3max  ->  " << eMax_imsrg << " " << e2Max_imsrg << " " << e3Max_imsrg << std::endl;
      modelspace_imsrg.SetEmax( eMax_imsrg);
      modelspace_imsrg.SetE2max( e2Max_imsrg);
@@ -837,36 +955,47 @@ int ManagerBase::Solve()
 
      HNO = HNO.Truncate(modelspace_imsrg);
 
-//     modelspace = modelspace_imsrg;  // this could cause some confusion later on...
-//    hf.PrintSPEandWF();
+    // After truncating, get the perturbative energies again to see how much things changed.
+     PrintPerturbativeEstimates(HNO);
   }
-  else
-  {
-    HNO.SetModelSpace(modelspace_imsrg);
-  }
+}
 
- // After truncating, get the perturbative energies again to see how much things changed.
-  if (eMax_imsrg != eMax)
-  {
-    std::cout << "Perturbative estimates of gs energy:" << std::endl;
-    double EMP2 = HNO.GetMP2_Energy();
-    double EMP2_3B = HNO.GetMP2_3BEnergy();
-    std::cout << "EMP2 = " << EMP2 << std::endl;
-    std::cout << "EMP2_3B = " << EMP2_3B << std::endl;
-    std::array<double,3> Emp_3 = HNO.GetMP3_Energy();
-    double EMP3 = Emp_3[0]+Emp_3[1]+Emp_3[2];
-    std::cout << "E3_pp = " << Emp_3[0] << "  E3_hh = " << Emp_3[1] << " E3_ph = " << Emp_3[2] << "   EMP3 = " << EMP3 << std::endl;
-    std::cout << "To 3rd order, E = " << HNO.ZeroBody + EMP2 + EMP3 + EMP2_3B << std::endl;
-  }
+void ManagerBase::SolveIMSRG(Operator& HNO)
+{
+  std::string denominator_partitioning = parameters.s("denominator_partitioning");
 
-  if ( method == "MP3" )
-  {
-    HNO.PrintTimes();
-    return 0;
-  }
+  double eta_criterion = parameters.d("eta_criterion");
+  double smax = parameters.d("smax");
+  double ds_0 = parameters.d("ds_0");
+  double dsmax = parameters.d("dsmax");
+  double denominator_delta = parameters.d("denominator_delta");
+  double domega = parameters.d("domega");
+  double omega_norm_max = parameters.d("omega_norm_max");
+  double OccNat3Cut = parameters.d("OccNat3Cut");
+  double ode_tolerance = parameters.d("ode_tolerance");
+  double threebody_threshold = parameters.d("threebody_threshold");
+  double dE3max = parameters.d("dE3max");
 
-  IMSRGSolver imsrgsolver(HNO);
-//  imsrgsolver.SetHin(HNO); // necessary?
+  bool only_2b_eta = (parameters.s("only_2b_eta")=="true");
+  bool hunter_gatherer = parameters.s("hunter_gatherer") == "true";
+  bool perturbative_triples = (parameters.s("perturbative_triples")=="true");
+  bool use_brueckner_bch = parameters.s("use_brueckner_bch") == "true";
+  bool IMSRG3 = parameters.s("IMSRG3") == "true";
+  bool imsrg3_n7 = parameters.s("imsrg3_n7") == "true";
+  bool imsrg3_at_end = parameters.s("imsrg3_at_end") == "true";
+  bool brueckner_restart = false;
+
+  int nsteps = parameters.i("nsteps");
+
+  std::string valence_generator = parameters.s("valence_generator");
+  std::string denominator_delta_orbit = parameters.s("denominator_delta_orbit");
+  std::string core_generator = parameters.s("core_generator");
+  std::string reference = parameters.s("reference");
+  std::string valence_space = parameters.s("valence_space");
+
+  // need to set this post-initialization if using imsrgsolver as a member variable
+  imsrgsolver.SetHin(HNO);
+
   imsrgsolver.SetReadWrite(rw);
   imsrgsolver.SetMethod(method);
   imsrgsolver.SetDenominatorPartitioning(denominator_partitioning);
@@ -885,24 +1014,6 @@ int ManagerBase::Solve()
   imsrgsolver.SetODETolerance(ode_tolerance);
   if (denominator_delta_orbit != "none")
     imsrgsolver.SetDenominatorDeltaOrbit(denominator_delta_orbit);
-
-//  if (method == "NSmagnus") // "No split" magnus
-//  {
-//    omega_norm_max=50000;
-//    method = "magnus";
-//  }
-//  if (method.find("brueckner") != std::string::npos)
-//  {
-//    if (method=="brueckner2") brueckner_restart=true;
-//    if (method=="brueckner1step")
-//    {
-//       nsteps = 1;
-//       core_generator = valence_generator;
-//    }
-//    use_brueckner_bch = true;
-//    omega_norm_max=500;
-//    method = "magnus";
-//  }
 
   Commutator::SetUseBruecknerBCH(use_brueckner_bch);
   Commutator::SetUseIMSRG3(IMSRG3);
@@ -934,6 +1045,7 @@ int ManagerBase::Solve()
     for (auto& op : ops )  imsrgsolver.AddOperator( op );
     std::cout << " Added ops. FlowingOps.size = " << imsrgsolver.FlowingOps.size() << std::endl;
   }
+
 
   imsrgsolver.SetGenerator(core_generator);
   if (core_generator.find("imaginary")!=std::string::npos or core_generator.find("wegner")!=std::string::npos )
@@ -968,9 +1080,9 @@ int ManagerBase::Solve()
 
   if (brueckner_restart)
   {
-     arma::mat newC = hf.C * arma::expmat( -imsrgsolver.GetOmega(0).OneBody  );
+     arma::mat newC = (*hf_p).C * arma::expmat( -imsrgsolver.GetOmega(0).OneBody  );
 //     if (input3bme != "none") Hbare.SetParticleRank(3);
-     HNO = hf.GetNormalOrderedH(newC);
+     HNO = (*hf_p).GetNormalOrderedH(newC);
      imsrgsolver.SetHin(HNO);
      imsrgsolver.s = 0;
      imsrgsolver.Solve();
@@ -1005,6 +1117,7 @@ int ManagerBase::Solve()
     {
       std::cout << "Performing final BCH transformation at the IMSRG(3) level" << std::endl;
 
+
 //      modelspace.SetdE3max(dE3max);
 //      modelspace.SetOccNat3Cut(OccNat3Cut);
 //      int new_E3max = std::min(modelspace.GetE3max(), int( std::ceil(3*std::max( modelspace.GetEFermi()[-1], modelspace.GetEFermi()[+1])+dE3max)));
@@ -1023,7 +1136,8 @@ int ManagerBase::Solve()
       H3.TwoBody = HNO.TwoBody;
       HNO = H3;
       std::cout << "Replacing HNO" << std::endl;
-      std::cout << "Hbare Three Body Norm is " << Hbare.ThreeBodyNorm() << std::endl;
+      // TODO: why Hbare here?
+      // std::cout << "Hbare Three Body Norm is " << Hbare.ThreeBodyNorm() << std::endl;
       HNO.ThreeBody.SwitchToPN_and_discard();
 
 
@@ -1043,42 +1157,22 @@ int ManagerBase::Solve()
     }
 
   }
+}
 
 
-/*
-  // Transform all the operators
-  if (method == "magnus")
-  {
-    if (ops.size()>0) std::cout << "transforming operators" << std::endl;
-    for (size_t i=0;i<ops.size();++i)
-    {
-      std::cout << opnames[i] << " " << std::endl;
-      ops[i] = imsrgsolver.Transform(ops[i]);
-      std::cout << " (" << ops[i].ZeroBody << " ) " << std::endl;
-//      rw.WriteOperatorHuman(ops[i],intfile+opnames[i]+"_step2.op");
-    }
-    std::cout << std::endl;
-    // increase smax in case we need to do additional steps
-    smax *= 1.5;
-    imsrgsolver.SetSmax(smax);
-  }
-  if (method == "flow" or method == "flow_RK4" )
-  {
-    for (size_t i=0;i<ops.size();++i)
-    {
-      ops[i] = imsrgsolver.GetOperator(i+1);  // the zero-th operator is the Hamiltonian
-    }
-  }
-*/
+// If we're doing targeted/ensemble normal ordering
+// we now re-normal order wrt to the core
+// and do any remaining flow.
+void ManagerBase::RenormalOrder(Operator& HNO)
+{
+  bool IMSRG3 = parameters.s("IMSRG3") == "true";
 
+  
 
-  // If we're doing targeted/ensemble normal ordering
-  // we now re-normal order wrt to the core
-  // and do any remaining flow.
 //  ModelSpace ms2(modelspace);
-  ModelSpace ms2(modelspace_imsrg);
+  // ModelSpace ms2(modelspace_imsrg);
+  ms2 = ModelSpace(modelspace_imsrg);
   ms2.SetReference(ms2.core); // change the reference
-  bool renormal_order = false;
 //  if (modelspace.valence.size() > 0 )
   if (modelspace_imsrg.valence.size() > 0 )
 //  if (modelspace.valence.size() > 0 or basis=="NAT")
@@ -1141,9 +1235,19 @@ int ManagerBase::Solve()
 //      op = imsrgsolver.Transform_Partial(op,nOmega);
 //    }
   }
+}
 
 
+// FIX
   // Write the output
+void ManagerBase::WriteOutput()
+{
+  std::string valence_file_format = parameters.s("valence_file_format");
+
+  using PhysConst::PROTON_RCH2;
+  using PhysConst::NEUTRON_RCH2;
+  using PhysConst::DARWIN_FOLDY;
+
 
   // If we're doing a shell model interaction, write the
   // interaction files to disk.
@@ -1230,11 +1334,32 @@ int ManagerBase::Solve()
     }
   }
 
-
+}
 
 
 /////////////////////
 /// Transform operators and write them
+
+// FIX
+void ManagerBase::TransformAndWriteOperatorsSequential()
+{
+
+  std::string valence_file_format = parameters.s("valence_file_format");
+  std::string input_op_fmt = parameters.s("input_op_fmt");
+  std::string basis = parameters.s("basis");
+
+  int file3e1max = parameters.i("file3e1max");
+  int file3e2max = parameters.i("file3e2max");
+  int file3e3max = parameters.i("file3e3max");
+
+  HFMBPT hf = *hf_p;
+
+  int E3max = parameters.i("e3max");
+  int eMax_imsrg = parameters.i("emax_imsrg");
+  int e2Max_imsrg = parameters.i("e2max_imsrg");
+  int e3Max_imsrg = parameters.i("e3max_imsrg");
+  if (e2Max_imsrg==-1 and eMax_imsrg != -1) e2Max_imsrg = 2*eMax_imsrg;
+  if (e3Max_imsrg==-1 and eMax_imsrg != -1) e3Max_imsrg = std::min(E3max, 3*eMax_imsrg);
 
 
 
@@ -1262,7 +1387,7 @@ int ManagerBase::Solve()
 
       if ( opname.find("_FROMFILE") != std::string::npos)
       {
-        OpFromFile& opff = opsfromfile_unpacked[count_from_file];
+        OpParseUtil::OpFromFile& opff = opsfromfile_unpacked[count_from_file];
          std::cout << "reading " << opff.opname << " with " << opff.j << " " << opff.t << " " << opff.p << " " << opff.r << "  from file " << opff.file2name << std::endl;
         op = Operator(modelspace, opff.j, opff.t, opff.p, opff.r );
         if (opff.r>2) op.ThreeBody.Allocate();
@@ -1414,46 +1539,37 @@ int ManagerBase::Solve()
     }
   }
 
+}
 
 
 
-
-
-
+void ManagerBase::WriteOmega()
+{
 
 // ReadWrite method
-
-
 //  std::cout << "Made it here and write_omega is " << write_omega << std::endl;
-  if (write_omega)
+
+  HFMBPT hf = *hf_p;
+  std::string scratch = rw.GetScratchDir();
+
+  imsrgsolver.FlushOmegaToScratch();
+  for (int i=0; i < imsrgsolver.GetNOmegaWritten() ; i++)
   {
-    std::string scratch = rw.GetScratchDir();
-    imsrgsolver.FlushOmegaToScratch();
-    for (int i=0; i < imsrgsolver.GetNOmegaWritten() ; i++)
-    {
-       std::ostringstream inputfile,outputfile;
-       inputfile << scratch << "/OMEGA_" << std::setw(6) << std::setfill('0') << getpid() << std::setw(3) << std::setfill('0') << i;
-       outputfile << intfile << "_Omega_" << i;
-       rw.CopyFile( inputfile.str(), outputfile.str() );
-    }
+      std::ostringstream inputfile,outputfile;
+      inputfile << scratch << "/OMEGA_" << std::setw(6) << std::setfill('0') << getpid() << std::setw(3) << std::setfill('0') << i;
+      outputfile << intfile << "_Omega_" << i;
+      rw.CopyFile( inputfile.str(), outputfile.str() );
+  }
 //    rw.WriteOmega(intfile,scratch, imsrgsolver.n_omega_written);
-    bool filesucess = hf.C.save(intfile+"C.mat");
-    if (filesucess == false)
-    {
-      std::cout<<"Couldn't save HF coefficient matrix."<<std::endl;
-    }
-    // std::cout << "writing Omega to " << intfile << "_omega.op" << std::endl;
-    // rw.WriteOperatorHuman(imsrgsolver.Omega.back(),intfile+"_omega.op");
-  }
-
-
-
-  if (IMSRG3)
+  bool filesucess = hf.C.save(intfile+"C.mat");
+  if (filesucess == false)
   {
-    std::cout << "Norm of 3-body = " << imsrgsolver.GetH_s().ThreeBodyNorm() << std::endl;
+    std::cout<<"Couldn't save HF coefficient matrix."<<std::endl;
   }
-  Hbare.PrintTimes();
-
-  return 0;
-
+  // std::cout << "writing Omega to " << intfile << "_omega.op" << std::endl;
+  // rw.WriteOperatorHuman(imsrgsolver.Omega.back(),intfile+"_omega.op");
 }
+
+
+
+
